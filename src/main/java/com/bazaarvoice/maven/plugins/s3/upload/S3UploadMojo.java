@@ -64,9 +64,11 @@ public class S3UploadMojo extends AbstractMojo
       throw new MojoExecutionException("Bucket doesn't exist: " + bucketName);
     }
 
-    boolean success = upload(s3, bucketName, destinationFile, source);
-    if (!success) {
-      throw new MojoExecutionException("Unable to upload file to S3.");
+    if (!doNotUpload) {
+        boolean success = upload(s3, bucketName, destinationFile, source);
+        if (!success) {
+          throw new MojoExecutionException("Unable to upload file to S3.");
+        }
     }
 
     getLog().info("File " + source + " uploaded to s3://" + bucketName + "/" + destinationFile);
