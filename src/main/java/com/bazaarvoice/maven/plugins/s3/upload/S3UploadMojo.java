@@ -15,6 +15,8 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 @Mojo(name = "s3-upload")
 public class S3UploadMojo extends AbstractMojo
@@ -32,7 +34,7 @@ public class S3UploadMojo extends AbstractMojo
   private boolean doNotUpload;
 
   /** The file to upload. */
-  @Parameter(property = "s3-upload.sourceFile", required = true)
+  @Parameter(property = "s3-upload.sourceFile")
   private String sourceFile;
 
   /** The bucket to upload into. */
@@ -40,19 +42,40 @@ public class S3UploadMojo extends AbstractMojo
   private String bucketName;
 
   /** The file (in the bucket) to create. */
-  @Parameter(property = "s3-upload.destinationFile", required = true)
+  @Parameter(property = "s3-upload.destinationFile")
   private String destinationFile;
 
   /** Force override of endpoint for S3 regions such as EU. */
   @Parameter(property = "s3-upload.endpoint")
   private String endpoint;
 
+  @Parameter
+  private List<FileUploadDescriptor> files;
+
   @Override
   public void execute() throws MojoExecutionException
   {
-    File source = new File(sourceFile);
-    if (!source.exists()) {
-      throw new MojoExecutionException("File doesn't exist: " + sourceFile);
+    if (files == null) {
+        files = new ArrayList<FileUploadDescriptor>();
+    }
+    if (sourceFile != null) {
+      FileUploadDescriptor d = new FileUploadDescriptor();
+      d.setSource(sourceFile);
+      d.setDestination(destinationFile);
+      files.add(d);
+    }
+
+    if (files.isEmpty()) {
+      throw new MojoExecutionException("No files specified for upload");
+    }
+
+    for (FileUploadDescriptor descriptor : files) {
+      if (!new File(descriptor.getSource()).exists()) {
+        throw new MojoExecutionException("File doesn't exist: " + descriptor.getSource());
+      }
+      if (descriptor.getDestination() == null) {
+        throw new MojoExecutionException("Destination file is not set for " + descriptor.getSource());
+      }
     }
 
     AmazonS3 s3 = getS3Client(accessKey, secretKey);
@@ -64,12 +87,11 @@ public class S3UploadMojo extends AbstractMojo
       throw new MojoExecutionException("Bucket doesn't exist: " + bucketName);
     }
 
-    boolean success = upload(s3, bucketName, destinationFile, source);
-    if (!success) {
-      throw new MojoExecutionException("Unable to upload file to S3.");
+    if (!doNotUpload) {
+      for (FileUploadDescriptor descriptor : files) {
+        upload(s3, bucketName, descriptor.getDestination(), descriptor.getSource());
+      }
     }
-
-    getLog().info("File " + source + " uploaded to s3://" + bucketName + "/" + destinationFile);
   }
 
   private static AmazonS3 getS3Client(String accessKey, String secretKey)
@@ -85,17 +107,17 @@ public class S3UploadMojo extends AbstractMojo
     return new AmazonS3Client(provider);
   }
 
-  private static boolean upload(AmazonS3 s3, String bucketName, String destinationFile, File source)
-  {
+  private void upload(AmazonS3 s3, String bucketName, String destinationFile, String sourceFile) throws MojoExecutionException {
+    File source = new File(sourceFile);
     TransferManager mgr = new TransferManager(s3);
     Upload upload = mgr.upload(bucketName, destinationFile, source);
 
     try {
       upload.waitForUploadResult();
     } catch (InterruptedException e) {
-      return false;
+      throw new MojoExecutionException("Unable to upload file " + source + " to s3://" + bucketName + "/" + destinationFile);
     }
 
-    return true;
+    getLog().info("File " + source + " uploaded to s3://" + bucketName + "/" + destinationFile);
   }
 }
